@@ -1,7 +1,9 @@
 """용돈 기입장 명령줄 인터페이스"""
 
 import argparse
+import sys
 from collections.abc import Sequence
+from .repository import JsonlStore
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -51,4 +53,17 @@ def build_parser() -> argparse.ArgumentParser:
     budget_commands.add_parser("set", help = "월 예산 설정")
 
     return parser
-    
+
+def main(argv: Sequence[str] | None = None) -> init:
+    args = build_parser().parse_args(argv)
+
+    try:
+        JsonlStore(args.data_dir).initialize()
+    except OSError as exc:
+        print(f"[오류] 데이터 폴더를 준비할 수 없습니다: {exc}", file = sys.stderr)
+        print("[힌트] --data-dir 경로와 쓰기 권한을 확인해주세요.", file = sys.stderr)
+        return 1
+
+    print(f"[오류] '{args.command}' 명령은 아직 구현되지 않았습니다.")
+    print("[힌트] 현재는 명령별 --help로 실행 구조를 확인할 수 있습니다.")
+    return 1
