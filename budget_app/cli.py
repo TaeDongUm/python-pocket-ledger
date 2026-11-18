@@ -3,7 +3,9 @@
 import argparse
 import sys
 from collections.abc import Sequence
+
 from .repository import JsonlStore
+from .service import CategoryService
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -41,9 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     for name, description in (
         ("add", "카테고리 추가"),
         ("list", "카테고리 목록"),
-        ("remove", "카테고리 삭제"),
     ):
         category_commands.add_parser(name, help = description)
+
+    remove = category_commands.add_parser("remove", help="카테고리 삭제")
+    remove.add_argument("--name", required=True, help="삭제할 카테고리 이름")
 
     budget = commands.add_parser("budget", help = "월 예산 관리")
     budget_commands = budget.add_subparsers(
@@ -54,14 +58,42 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def main(argv: Sequence[str] | None = None) -> init:
+def run_category(args: argparse.Namespace, service: CategoryService) -> None:
+    if args.category_command == "add":
+        name = service.add(input("카테고리명: "))
+        print(f"[저장 완료] category={name}")
+    elif args.category_command == "remove":
+        name = service.remove(args.name)
+        print(f"[삭제 완료] category={name}")
+    else:
+        names = service.list_categories()
+        if names:
+            for name in names:
+                print(f"- {name}")
+        else:
+            print("등록된 카테고리가 없습니다. category add로 추가하세요.")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    store = JsonlStore(args.data_dir)
     try:
-        JsonlStore(args.data_dir).initialize()
+        store.initialize()
+        if args.command == "category":
+            run_category(args, CategoryService(store))
+            return 0
     except OSError as exc:
-        print(f"[오류] 데이터 폴더를 준비할 수 없습니다: {exc}", file = sys.stderr)
-        print("[힌트] --data-dir 경로와 쓰기 권한을 확인해주세요.", file = sys.stderr)
+        print(f"[오류] 데이터 파일을 처리할 수 없습니다: {exc}", file=sys.stderr)
+        print("[힌트] --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"[오류] {exc}", file=sys.stderr)
+        print("[힌트] category list로 등록된 카테고리를 확인하세요.", file=sys.stderr)
+        return 1
+    except EOFError:
+        print("[오류] 카테고리 이름 입력이 종료되었습니다.", file=sys.stderr)
+        print("[힌트] category add를 다시 실행하고 이름을 입력하세요.", file=sys.stderr)
         return 1
 
     print(f"[오류] '{args.command}' 명령은 아직 구현되지 않았습니다.")

@@ -1,9 +1,11 @@
 """JSONL 파일 생성과 거래 스트리밍 읽기"""
 
 import json
-from collections.abc import Iterator
+import os
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from .models import Transaction
 
@@ -26,16 +28,35 @@ class JsonlStore:
         """저장 폴더와 파일을 준비하고 기본 카테고리를 등록한다."""
         self.data_dir.mkdir(parents = True, exist_ok = True)
 
-        for path in (
-            self.transactions_path,
-            self.categories_path,
-            self.budgets_path,
-        ):
-            path.touch(exist_ok = True)
+        for path in (self.transactions_path, self.budgets_path):
+            try:
+                path.touch(exist_ok=False)
+            except FileExistsError:
+                pass
 
-        if self.categories_path.stat().st_size == 0:
-            for name in DEFAULT_CATEGORIES:
-                self._append_json(self.categories_path, {"name": name})
+        if not self.categories_path.exists():
+            self.save_categories(DEFAULT_CATEGORIES, initialize=True)
+
+    def save_categories(self, names: Iterable[str], *, initialize: bool = False) -> None:
+        """완성된 카테고리 파일을 반영하고 임시 파일을 정리한다."""
+        with NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=self.data_dir, delete=False
+        ) as file:
+            temp_path = Path(file.name)
+            try:
+                for name in names:
+                    file.write(json.dumps({"name": name}, ensure_ascii=False) + "\n")
+                file.close()
+                if initialize:
+                    # 다른 실행에서 먼저 만든 파일이 있으면 그대로 사용한다.
+                    try:
+                        os.link(temp_path, self.categories_path)
+                    except FileExistsError:
+                        pass
+                else:
+                    os.replace(temp_path, self.categories_path)
+            finally:
+                temp_path.unlink(missing_ok=True)
 
     def iter_tranactions(self) -> Iterator[Transaction]:
         """거래 파일을 한 줄씩 읽어 Transaction 객체로 변환한다."""
@@ -86,4 +107,3 @@ class JsonlStore:
     def _append_json(path: Path, record: dict[str, object]) -> None:
         with path.open("a", encoding = "utf-8") as file:
             file.write(json.dumps(record, ensure_ascii = False) + "\n")
-                
