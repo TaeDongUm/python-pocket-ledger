@@ -5,7 +5,7 @@ import sys
 from collections.abc import Sequence
 
 from .repository import JsonlStore
-from .service import CategoryService
+from .service import CategoryService, TransactionService
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -74,6 +74,31 @@ def run_category(args: argparse.Namespace, service: CategoryService) -> None:
             print("등록된 카테고리가 없습니다. category add로 추가하세요.")
 
 
+def run_add(service: TransactionService) -> None:
+    date = input("날짜(YYYY-MM-DD): ").strip()
+    transaction_type = input("타입(income/expense): ").strip()
+    category = input("카테고리: ").strip()
+    amount_text = input("금액(양의 정수): ").strip()
+    try:
+        if not amount_text.isdecimal():
+            raise ValueError
+        amount = int(amount_text)
+    except ValueError:
+        raise ValueError("금액은 15000처럼 0보다 큰 정수로 입력하세요.") from None
+    memo = input("메모(선택): ")
+    tags = tuple(tag for tag in map(str.strip, input("태그(선택, 쉼표로 구분): ").split(",")) if tag)
+
+    transaction = service.add(
+        date=date,
+        transaction_type=transaction_type,
+        category=category,
+        amount=amount,
+        memo=memo,
+        tags=tags,
+    )
+    print(f"[저장 완료] id={transaction.id}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -83,17 +108,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "category":
             run_category(args, CategoryService(store))
             return 0
+        if args.command == "add":
+            run_add(TransactionService(store))
+            return 0
     except OSError as exc:
         print(f"[오류] 데이터 파일을 처리할 수 없습니다: {exc}", file=sys.stderr)
         print("[힌트] --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
         return 1
     except ValueError as exc:
         print(f"[오류] {exc}", file=sys.stderr)
-        print("[힌트] category list로 등록된 카테고리를 확인하세요.", file=sys.stderr)
+        if args.command == "category":
+            print("[힌트] category list로 등록된 카테고리를 확인하세요.", file=sys.stderr)
+        else:
+            print("[힌트] 입력값을 확인한 뒤 add를 다시 실행하세요.", file=sys.stderr)
         return 1
     except EOFError:
-        print("[오류] 카테고리 이름 입력이 종료되었습니다.", file=sys.stderr)
-        print("[힌트] category add를 다시 실행하고 이름을 입력하세요.", file=sys.stderr)
+        print("[오류] 필수 입력이 끝나기 전에 입력이 종료되었습니다.", file=sys.stderr)
+        print("[힌트] 명령을 다시 실행하고 안내에 따라 입력하세요.", file=sys.stderr)
         return 1
 
     print(f"[오류] '{args.command}' 명령은 아직 구현되지 않았습니다.")

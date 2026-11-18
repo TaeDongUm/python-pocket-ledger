@@ -82,7 +82,7 @@ class JsonlStore:
                         "파일 내용을 확인해주세요."
                     ) from exc
     def append_transaction(self, transaction: Transaction) -> None:
-        self._append_json(self.transaction_path, asdict(transaction))
+        self._append_json(self.transactions_path, asdict(transaction))
 
     def iter_categories(self) -> Iterator[str]:
         """등록된 카테고리를 한 줄씩 읽는다."""
@@ -105,5 +105,10 @@ class JsonlStore:
 
     @staticmethod
     def _append_json(path: Path, record: dict[str, object]) -> None:
-        with path.open("a", encoding = "utf-8") as file:
-            file.write(json.dumps(record, ensure_ascii = False) + "\n")
+        line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+        with path.open("a+b") as file:
+            if file.seek(0, os.SEEK_END):
+                file.seek(-1, os.SEEK_END)
+                if file.read(1) != b"\n":
+                    line = b"\n" + line
+            file.write(line)
