@@ -1,5 +1,6 @@
 """카테고리와 거래 관리 규칙."""
 
+from heapq import nlargest
 from uuid import uuid4
 
 from .models import Transaction
@@ -40,6 +41,18 @@ class CategoryService:
 class TransactionService:
     def __init__(self, store: JsonlStore) -> None:
         self.store = store
+
+    def list_recent(self, limit: int) -> list[Transaction]:
+        if limit <= 0:
+            raise ValueError("--limit은 양의 정수여야 합니다.")
+
+        # 같은 거래 날짜에서는 파일 뒤쪽에 기록된 거래를 먼저 보여준다.
+        newest = nlargest(
+            limit,
+            enumerate(self.store.iter_tranactions()),
+            key=lambda entry: (entry[1].date, entry[0]),
+        )
+        return [transaction for _, transaction in newest]
 
     def add(
         self,

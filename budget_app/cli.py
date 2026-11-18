@@ -7,6 +7,19 @@ from collections.abc import Sequence
 from .repository import JsonlStore
 from .service import CategoryService, TransactionService
 
+DEFAULT_LIST_LIMIT = 10
+
+
+def positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("양의 정수를 입력하세요.") from None
+    if not value.isdecimal() or number <= 0:
+        raise argparse.ArgumentTypeError("양의 정수를 입력하세요.")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog = "python -m budget_app",
@@ -20,9 +33,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required = True)
 
+    listing = commands.add_parser("list", help="거래 목록")
+    listing.add_argument(
+        "--limit",
+        type=positive_int,
+        default=DEFAULT_LIST_LIMIT,
+        metavar="N",
+        help="표시할 최대 거래 건수 (기본값: %(default)s)",
+    )
+
     for name, description in (
         ("add", "거래 추가"),
-        ("list", "거래 목록"),
         ("search", "거래 검색"),
         ("summary","월별 요약"),
         ("update","거래 수정"),
@@ -99,6 +120,17 @@ def run_add(service: TransactionService) -> None:
     print(f"[저장 완료] id={transaction.id}")
 
 
+def run_list(service: TransactionService, limit: int) -> None:
+    transactions = service.list_recent(limit)
+    if not transactions:
+        print("등록된 거래가 없습니다.")
+    for transaction in transactions:
+        print(
+            f"{transaction.id} | {transaction.date} | {transaction.type} | "
+            f"{transaction.category} | {transaction.amount} | {transaction.memo}"
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -111,6 +143,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "add":
             run_add(TransactionService(store))
             return 0
+        if args.command == "list":
+            run_list(TransactionService(store), args.limit)
+            return 0
     except OSError as exc:
         print(f"[오류] 데이터 파일을 처리할 수 없습니다: {exc}", file=sys.stderr)
         print("[힌트] --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
@@ -119,8 +154,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[오류] {exc}", file=sys.stderr)
         if args.command == "category":
             print("[힌트] category list로 등록된 카테고리를 확인하세요.", file=sys.stderr)
-        else:
+        elif args.command == "add":
             print("[힌트] 입력값을 확인한 뒤 add를 다시 실행하세요.", file=sys.stderr)
+        else:
+            print("[힌트] --data-dir의 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         return 1
     except EOFError:
         print("[오류] 필수 입력이 끝나기 전에 입력이 종료되었습니다.", file=sys.stderr)
