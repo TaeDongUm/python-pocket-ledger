@@ -11,6 +11,7 @@ from .repository import JsonlStore
 from .service import CategoryService, TransactionService
 
 DEFAULT_LIST_LIMIT = 10
+DEFAULT_SUMMARY_TOP = 5
 
 
 def positive_int(value: str) -> int:
@@ -53,9 +54,18 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--q", help="메모에 포함된 키워드 (대소문자 무시)")
     search.add_argument("--tag", help="태그 이름")
 
+    summary = commands.add_parser("summary", help="월별 요약")
+    summary.add_argument("--month", required=True, metavar="YYYY-MM", help="요약할 거래 월")
+    summary.add_argument(
+        "--top",
+        type=positive_int,
+        default=DEFAULT_SUMMARY_TOP,
+        metavar="N",
+        help="표시할 지출 카테고리 최대 개수 (기본값: %(default)s)",
+    )
+
     for name, description in (
         ("add", "거래 추가"),
-        ("summary","월별 요약"),
         ("update","거래 수정"),
         ("delete","거래 삭제"),
         ("import","CSV 가져오기"),
@@ -142,6 +152,23 @@ def print_transactions(transactions: Iterable[Transaction], empty_message: str) 
         print(empty_message)
 
 
+def run_summary(service: TransactionService, month: str, top: int) -> None:
+    summary = service.summarize_month(month, top)
+    if summary is None:
+        print(f"{month} 데이터 없음")
+        return
+
+    print(f"총 수입: {summary.income}원")
+    print(f"총 지출: {summary.expenses}원")
+    print(f"잔액: {summary.balance}원")
+    if summary.top_expenses:
+        print(f"지출 TOP {top}")
+        for rank, (category, total) in enumerate(summary.top_expenses, start=1):
+            print(f"{rank}) {category} {total}원")
+    else:
+        print("카테고리별 지출 없음")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -170,6 +197,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )) as matches:
                 print_transactions(matches, "검색 조건에 맞는 거래가 없습니다.")
             return 0
+        if args.command == "summary":
+            run_summary(TransactionService(store), args.month, args.top)
+            return 0
     except sqlite3.Error as exc:
         print(f"[오류] 검색 결과를 정렬할 수 없습니다: {exc}", file=sys.stderr)
         print("[힌트] 임시 폴더의 저장 공간과 쓰기 권한을 확인하세요.", file=sys.stderr)
@@ -186,6 +216,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("[힌트] 입력값을 확인한 뒤 add를 다시 실행하세요.", file=sys.stderr)
         elif args.command == "search":
             print("[힌트] 검색 조건과 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
+        elif args.command == "summary":
+            print("[힌트] --month 값과 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         else:
             print("[힌트] --data-dir의 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         return 1

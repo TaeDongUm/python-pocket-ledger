@@ -14,10 +14,29 @@ def validate_date(value: str) -> str:
         )
     return value
 
+def validate_month(value: str) -> str:
+    try:
+        validate_date(f"{value}-01")
+    except ValueError as exc:
+        raise ValueError("월은 2024-01처럼 YYYY-MM 형식으로 입력하세요.") from exc
+    return value
+
+
 def validate_amount(value: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError("금액은 0보다 큰 정수여야 합니다.")
     return value
+
+@dataclass(frozen=True)
+class MonthlySummary:
+    income: int
+    expenses: int
+    top_expenses: list[tuple[str, int]]
+
+    @property
+    def balance(self) -> int:
+        return self.income - self.expenses
+
 
 @dataclass(frozen=True)
 class Transaction:

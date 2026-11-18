@@ -5,10 +5,10 @@ import sqlite3
 from collections.abc import Generator, Iterator
 from contextlib import closing
 from dataclasses import asdict
-from heapq import nlargest
+from heapq import nlargest, nsmallest
 from uuid import uuid4
 
-from .models import Transaction, validate_date
+from .models import MonthlySummary, Transaction, validate_date, validate_month
 from .repository import JsonlStore
 
 
@@ -58,6 +58,33 @@ class TransactionService:
             key=lambda entry: (entry[1].date, entry[0]),
         )
         return [transaction for _, transaction in newest]
+
+    def summarize_month(self, month: str, top: int) -> MonthlySummary | None:
+        validate_month(month)
+        if top <= 0:
+            raise ValueError("--top은 양의 정수여야 합니다.")
+
+        income = expenses = 0
+        expenses_by_category: dict[str, int] = {}
+        for transaction in self.store.iter_tranactions():
+            if transaction.date[:7] != month:
+                continue
+            if transaction.type == "income":
+                income += transaction.amount
+            else:
+                expenses += transaction.amount
+                category = transaction.category
+                expenses_by_category[category] = (
+                    expenses_by_category.get(category, 0) + transaction.amount
+                )
+
+        if income == 0 and expenses == 0:
+            return None
+
+        top_expenses = nsmallest(
+            top, expenses_by_category.items(), key=lambda entry: (-entry[1], entry[0])
+        )
+        return MonthlySummary(income, expenses, top_expenses)
 
     def search(
         self,
