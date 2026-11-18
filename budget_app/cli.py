@@ -3,8 +3,9 @@
 import argparse
 import sqlite3
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import closing
+from functools import wraps
 from pathlib import Path
 
 from .csv_io import export_csv, import_csv
@@ -14,6 +15,12 @@ from .service import CategoryService, TransactionService
 
 DEFAULT_LIST_LIMIT = 10
 DEFAULT_SUMMARY_TOP = 5
+
+
+class LedgerArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        self.print_usage(sys.stderr)
+        self.exit(2, f"[오류] {message}\n[힌트] --help로 사용 방법을 확인하세요.\n")
 
 
 def positive_int(value: str) -> int:
@@ -27,7 +34,7 @@ def positive_int(value: str) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = LedgerArgumentParser(
         prog = "python -m budget_app",
         description="파일 기반 용돈 기입장", 
     )
@@ -199,102 +206,110 @@ def run_summary(service: TransactionService, month: str, top: int) -> None:
         print("카테고리별 지출 없음")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+VALIDATION_HINTS = {
+    "add": "입력값을 확인한 뒤 add를 다시 실행하세요.",
+    "category": "category list로 등록된 카테고리를 확인하세요.",
+    "list": "거래 파일을 확인하세요.",
+    "search": "검색 조건과 거래 파일을 확인하세요.",
+    "summary": "--month 값과 거래·예산 파일을 확인하세요.",
+    "budget": "--month 값과 예산 파일을 확인하세요.",
+    "update": "거래 ID와 변경 옵션을 확인하세요.",
+    "delete": "거래 ID를 확인하세요.",
+    "import": "가져오기 전체가 취소되었습니다. 입력 파일을 확인하세요.",
+    "export": "기간 조건, 출력 경로와 거래 파일을 확인하세요.",
+}
 
+
+def handle_command_errors(
+    command: Callable[[argparse.Namespace], int],
+) -> Callable[[argparse.Namespace], int]:
+    @wraps(command)
+    def wrapped(args: argparse.Namespace) -> int:
+        try:
+            return command(args)
+        except sqlite3.Error as exc:
+            message = f"검색 결과를 정렬할 수 없습니다: {exc}"
+            hint = "임시 폴더의 저장 공간과 쓰기 권한을 확인하세요."
+        except OSError as exc:
+            message = f"데이터 파일을 처리할 수 없습니다: {exc}"
+            hint = "표시된 파일 경로와 읽기·쓰기 권한을 확인하세요."
+        except ValueError as exc:
+            message = str(exc)
+            hint = VALIDATION_HINTS.get(args.command, "--help로 사용 방법을 확인하세요.")
+        except EOFError:
+            message = "필수 입력이 끝나기 전에 입력이 종료되었습니다."
+            hint = "명령을 다시 실행하고 안내에 따라 입력하세요."
+        except KeyboardInterrupt:
+            message = "명령 실행이 중단되었습니다."
+            hint = "작업을 계속하려면 명령을 다시 실행하세요."
+
+        print(f"[오류] {message}", file=sys.stderr)
+        print(f"[힌트] {hint}", file=sys.stderr)
+        return 1
+
+    return wrapped
+
+
+@handle_command_errors
+def run_command(args: argparse.Namespace) -> int:
     store = JsonlStore(args.data_dir)
-    try:
-        store.initialize()
-        if args.command == "category":
-            run_category(args, CategoryService(store))
-            return 0
-        if args.command == "add":
-            run_add(TransactionService(store))
-            return 0
-        if args.command == "list":
-            print_transactions(
-                TransactionService(store).list_recent(args.limit), "등록된 거래가 없습니다."
-            )
-            return 0
-        if args.command == "search":
-            with closing(TransactionService(store).search(
-                start=args.start,
-                end=args.end,
-                category=args.category,
-                transaction_type=args.type,
-                query=args.q,
-                tag=args.tag,
-            )) as matches:
-                print_transactions(matches, "검색 조건에 맞는 거래가 없습니다.")
-            return 0
-        if args.command == "summary":
-            run_summary(TransactionService(store), args.month, args.top)
-            return 0
-        if args.command == "budget":
-            TransactionService(store).set_budget(args.month, args.amount)
-            print(f"[저장 완료] {args.month} 예산 {args.amount}원")
-            return 0
-        if args.command == "update":
-            TransactionService(store).update(
-                args.id,
-                date=args.date,
-                transaction_type=args.type,
-                category=args.category,
-                amount=args.amount,
-                memo=args.memo,
-                tags=args.tags,
-            )
-            print(f"[수정 완료] id={args.id}")
-            return 0
-        if args.command == "delete":
-            TransactionService(store).delete(args.id)
-            print(f"[삭제 완료] id={args.id}")
-            return 0
-        if args.command == "import":
-            count = import_csv(store, args.source)
-            print(f"[완료] imported={count}, skipped=0")
-            return 0
-        if args.command == "export":
-            count = export_csv(store, args.out, month=args.month, start=args.start, end=args.end)
-            print(f"[완료] {args.out} ({count}건)")
-            return 0
-    except sqlite3.Error as exc:
-        print(f"[오류] 검색 결과를 정렬할 수 없습니다: {exc}", file=sys.stderr)
-        print("[힌트] 임시 폴더의 저장 공간과 쓰기 권한을 확인하세요.", file=sys.stderr)
-        return 1
-    except OSError as exc:
-        print(f"[오류] 데이터 파일을 처리할 수 없습니다: {exc}", file=sys.stderr)
-        if args.command in ("import", "export"):
-            print("[힌트] CSV 및 --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
-        else:
-            print("[힌트] --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
-        return 1
-    except ValueError as exc:
-        print(f"[오류] {exc}", file=sys.stderr)
-        if args.command == "category":
-            print("[힌트] category list로 등록된 카테고리를 확인하세요.", file=sys.stderr)
-        elif args.command == "add":
-            print("[힌트] 입력값을 확인한 뒤 add를 다시 실행하세요.", file=sys.stderr)
-        elif args.command == "search":
-            print("[힌트] 검색 조건과 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
-        elif args.command == "summary":
-            print("[힌트] --month 값과 transactions.jsonl, budgets.jsonl을 확인하세요.", file=sys.stderr)
-        elif args.command == "budget":
-            print("[힌트] --month 값과 budgets.jsonl을 확인하세요.", file=sys.stderr)
-        elif args.command in ("update", "delete"):
-            print("[힌트] 거래 ID와 변경 옵션을 확인하세요.", file=sys.stderr)
-        elif args.command == "import":
-            print("[힌트] 가져오기 전체가 취소되었습니다. 입력 파일을 확인하세요.", file=sys.stderr)
-        elif args.command == "export":
-            print("[힌트] 기간 조건, 출력 경로와 거래 파일을 확인하세요.", file=sys.stderr)
-        else:
-            print("[힌트] --data-dir의 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
-        return 1
-    except EOFError:
-        print("[오류] 필수 입력이 끝나기 전에 입력이 종료되었습니다.", file=sys.stderr)
-        print("[힌트] 명령을 다시 실행하고 안내에 따라 입력하세요.", file=sys.stderr)
-        return 1
+    store.initialize()
+    if args.command == "category":
+        run_category(args, CategoryService(store))
+        return 0
+    if args.command == "add":
+        run_add(TransactionService(store))
+        return 0
+    if args.command == "list":
+        print_transactions(
+            TransactionService(store).list_recent(args.limit), "등록된 거래가 없습니다."
+        )
+        return 0
+    if args.command == "search":
+        with closing(TransactionService(store).search(
+            start=args.start,
+            end=args.end,
+            category=args.category,
+            transaction_type=args.type,
+            query=args.q,
+            tag=args.tag,
+        )) as matches:
+            print_transactions(matches, "검색 조건에 맞는 거래가 없습니다.")
+        return 0
+    if args.command == "summary":
+        run_summary(TransactionService(store), args.month, args.top)
+        return 0
+    if args.command == "budget":
+        TransactionService(store).set_budget(args.month, args.amount)
+        print(f"[저장 완료] {args.month} 예산 {args.amount}원")
+        return 0
+    if args.command == "update":
+        TransactionService(store).update(
+            args.id,
+            date=args.date,
+            transaction_type=args.type,
+            category=args.category,
+            amount=args.amount,
+            memo=args.memo,
+            tags=args.tags,
+        )
+        print(f"[수정 완료] id={args.id}")
+        return 0
+    if args.command == "delete":
+        TransactionService(store).delete(args.id)
+        print(f"[삭제 완료] id={args.id}")
+        return 0
+    if args.command == "import":
+        count = import_csv(store, args.source)
+        print(f"[완료] imported={count}, skipped=0")
+        return 0
+    if args.command == "export":
+        count = export_csv(store, args.out, month=args.month, start=args.start, end=args.end)
+        print(f"[완료] {args.out} ({count}건)")
+        return 0
 
-    print(f"[오류] '{args.command}' 명령은 아직 구현되지 않았습니다.")
-    print("[힌트] 현재는 명령별 --help로 실행 구조를 확인할 수 있습니다.")
-    return 1
+    raise ValueError(f"'{args.command}' 명령은 아직 구현되지 않았습니다.")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    return run_command(build_parser().parse_args(argv))

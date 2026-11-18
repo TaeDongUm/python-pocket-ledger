@@ -7,6 +7,7 @@ from dataclasses import asdict
 from itertools import chain
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Any, TypeVar
 
 from .models import Transaction, validate_amount, validate_month
 
@@ -44,20 +45,13 @@ class JsonlStore:
         )
 
     def load_budgets(self) -> dict[str, int]:
-        budgets: dict[str, int] = {}
-        with self.budgets_path.open(encoding="utf-8") as file:
-            for line_number, line in enumerate(file, start=1):
-                if not line.strip():
-                    continue
-                try:
-                    record = json.loads(line)
-                    month = validate_month(record["month"])
-                    budgets[month] = validate_amount(record["amount"])
-                except (KeyError, TypeError, ValueError) as exc:
-                    raise ValueError(
-                        f"budgets.jsonl {line_number}번째 줄의 월 또는 금액이 올바르지 않습니다."
-                    ) from exc
-        return budgets
+        def parse_budget(record: dict[str, object]) -> tuple[str, int]:
+            month, amount = record["month"], record["amount"]
+            if not isinstance(month, str) or not isinstance(amount, int):
+                raise ValueError("월과 금액의 형식이 올바르지 않습니다.")
+            return validate_month(month), validate_amount(amount)
+
+        return dict(_read_jsonl(self.budgets_path, parse_budget))
 
     def save_budget(self, month: str, amount: int) -> None:
         budgets = self.load_budgets()
@@ -92,27 +86,8 @@ class JsonlStore:
 
     def iter_tranactions(self) -> Iterator[Transaction]:
         """거래 파일을 한 줄씩 읽어 Transaction 객체로 변환한다."""
-        with self.transactions_path.open("r", encoding="utf-8") as file:
-            for line_number, line in enumerate(file, start = 1):
-                if not line.strip():
-                    continue
+        return _read_jsonl(self.transactions_path, _parse_transaction)
 
-                try:
-                    record = json.loads(line)
-                    yield Transaction(
-                        id = record["id"],
-                        type = record["type"],
-                        date = record["date"],
-                        amount = record["amount"],
-                        category = record["category"],
-                        memo = record.get("memo", ""),
-                        tags = tuple(record.get("tags", [])),
-                    )
-                except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-                    raise ValueError(
-                        f"거래 파일 {line_number}번째 줄을 읽을 수 없습니다."
-                        "파일 내용을 확인해주세요."
-                    ) from exc
     def append_transaction(self, transaction: Transaction) -> None:
         self._append_json(self.transactions_path, asdict(transaction))
 
@@ -142,22 +117,13 @@ class JsonlStore:
 
     def iter_categories(self) -> Iterator[str]:
         """등록된 카테고리를 한 줄씩 읽는다."""
-        with self.categories_path.open("r", encoding = "utf-8") as file:
-            for line_number, line in enumerate(file, start = 1):
-                if not line.strip():
-                    continue
+        def parse_category(record: dict[str, object]) -> str:
+            name = record["name"]
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("카테고리 이름이 올바르지 않습니다.")
+            return name
 
-                try:
-                    record = json.loads(line)
-                    name = record["name"]
-                    if not isinstance(name, str) or not name.strip():
-                        raise ValueError("빈 카테고리명")
-                    yield name
-                except(json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
-                    raise ValueError(
-                        f"카테고리 파일 {line_number}번째 줄을 읽을 수 없습니다."
-                        "파일 내용을 확인해주세요."
-                    ) from exc
+        return _read_jsonl(self.categories_path, parse_category)
 
     @staticmethod
     def _append_json(path: Path, record: dict[str, object]) -> None:
@@ -168,3 +134,41 @@ class JsonlStore:
                 if file.read(1) != b"\n":
                     line = b"\n" + line
             file.write(line)
+
+
+Record = TypeVar("Record")
+
+
+def _read_jsonl(path: Path, parse: Callable[[dict[str, Any]], Record]) -> Iterator[Record]:
+    # 줄별로 디코딩해 UTF-8이 깨진 경우에도 정확한 행 번호를 보여준다.
+    with path.open("rb") as file:
+        for line_number, raw_line in enumerate(file, start=1):
+            try:
+                line = raw_line.decode("utf-8")
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    raise ValueError("각 행은 JSON 객체여야 합니다.")
+                parsed = parse(record)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{path.name} {line_number}번째 줄을 읽을 수 없습니다. "
+                    "해당 줄의 UTF-8 인코딩, JSON 형식과 필드 값을 확인하세요."
+                ) from exc
+            yield parsed
+
+
+def _parse_transaction(record: dict[str, Any]) -> Transaction:
+    tags = record.get("tags", [])
+    if not isinstance(tags, list):
+        raise ValueError("태그는 JSON 배열이어야 합니다.")
+    return Transaction(
+        id=record["id"],
+        type=record["type"],
+        date=record["date"],
+        amount=record["amount"],
+        category=record["category"],
+        memo=record.get("memo", ""),
+        tags=tuple(tags),
+    )
