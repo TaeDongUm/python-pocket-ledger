@@ -95,7 +95,9 @@ def build_parser() -> argparse.ArgumentParser:
         dest = "budget_command",
         required = True,
     )
-    budget_commands.add_parser("set", help = "월 예산 설정")
+    budget_set = budget_commands.add_parser("set", help="월 예산 설정")
+    budget_set.add_argument("--month", required=True, metavar="YYYY-MM", help="예산을 설정할 월")
+    budget_set.add_argument("--amount", required=True, type=positive_int, help="월 예산 금액")
 
     return parser
 
@@ -154,13 +156,22 @@ def print_transactions(transactions: Iterable[Transaction], empty_message: str) 
 
 def run_summary(service: TransactionService, month: str, top: int) -> None:
     summary = service.summarize_month(month, top)
+    budget = service.get_budget(month)
     if summary is None:
         print(f"{month} 데이터 없음")
+    else:
+        print(f"총 수입: {summary.income}원")
+        print(f"총 지출: {summary.expenses}원")
+        print(f"잔액: {summary.balance}원")
+    if budget is not None:
+        expenses = summary.expenses if summary is not None else 0
+        # 사용률을 0.1% 단위로 반올림한다.
+        percent, decimal = divmod((expenses * 2000 + budget) // (2 * budget), 10)
+        print(f"예산: {budget}원 (사용률 {percent}.{decimal}%)")
+        if expenses > budget:
+            print(f"[경고] 월 예산을 {expenses - budget}원 초과했습니다.")
+    if summary is None:
         return
-
-    print(f"총 수입: {summary.income}원")
-    print(f"총 지출: {summary.expenses}원")
-    print(f"잔액: {summary.balance}원")
     if summary.top_expenses:
         print(f"지출 TOP {top}")
         for rank, (category, total) in enumerate(summary.top_expenses, start=1):
@@ -200,6 +211,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "summary":
             run_summary(TransactionService(store), args.month, args.top)
             return 0
+        if args.command == "budget":
+            TransactionService(store).set_budget(args.month, args.amount)
+            print(f"[저장 완료] {args.month} 예산 {args.amount}원")
+            return 0
     except sqlite3.Error as exc:
         print(f"[오류] 검색 결과를 정렬할 수 없습니다: {exc}", file=sys.stderr)
         print("[힌트] 임시 폴더의 저장 공간과 쓰기 권한을 확인하세요.", file=sys.stderr)
@@ -217,7 +232,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "search":
             print("[힌트] 검색 조건과 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         elif args.command == "summary":
-            print("[힌트] --month 값과 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
+            print("[힌트] --month 값과 transactions.jsonl, budgets.jsonl을 확인하세요.", file=sys.stderr)
+        elif args.command == "budget":
+            print("[힌트] --month 값과 budgets.jsonl을 확인하세요.", file=sys.stderr)
         else:
             print("[힌트] --data-dir의 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         return 1

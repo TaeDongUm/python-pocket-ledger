@@ -8,7 +8,7 @@ from dataclasses import asdict
 from heapq import nlargest, nsmallest
 from uuid import uuid4
 
-from .models import MonthlySummary, Transaction, validate_date, validate_month
+from .models import MonthlySummary, Transaction, validate_amount, validate_date, validate_month
 from .repository import JsonlStore
 
 
@@ -46,6 +46,12 @@ class CategoryService:
 class TransactionService:
     def __init__(self, store: JsonlStore) -> None:
         self.store = store
+
+    def set_budget(self, month: str, amount: int) -> None:
+        self.store.save_budget(validate_month(month), validate_amount(amount))
+
+    def get_budget(self, month: str) -> int | None:
+        return self.store.load_budgets().get(month)
 
     def list_recent(self, limit: int) -> list[Transaction]:
         if limit <= 0:

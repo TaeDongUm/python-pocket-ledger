@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from .models import Transaction
+from .models import Transaction, validate_amount, validate_month
 
 DEFAULT_CATEGORIES = (
     "food",
@@ -38,23 +38,54 @@ class JsonlStore:
             self.save_categories(DEFAULT_CATEGORIES, initialize=True)
 
     def save_categories(self, names: Iterable[str], *, initialize: bool = False) -> None:
-        """완성된 카테고리 파일을 반영하고 임시 파일을 정리한다."""
+        self._replace_jsonl(
+            self.categories_path, ({"name": name} for name in names), initialize=initialize
+        )
+
+    def load_budgets(self) -> dict[str, int]:
+        budgets: dict[str, int] = {}
+        with self.budgets_path.open(encoding="utf-8") as file:
+            for line_number, line in enumerate(file, start=1):
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                    month = validate_month(record["month"])
+                    budgets[month] = validate_amount(record["amount"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"budgets.jsonl {line_number}번째 줄의 월 또는 금액이 올바르지 않습니다."
+                    ) from exc
+        return budgets
+
+    def save_budget(self, month: str, amount: int) -> None:
+        budgets = self.load_budgets()
+        budgets[month] = amount
+        self._replace_jsonl(
+            self.budgets_path,
+            ({"month": key, "amount": value} for key, value in budgets.items()),
+        )
+
+    def _replace_jsonl(
+        self, path: Path, records: Iterable[dict[str, object]], *, initialize: bool = False
+    ) -> None:
+        """완성된 JSONL 파일을 반영하고 임시 파일을 정리한다."""
         with NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=self.data_dir, delete=False
         ) as file:
             temp_path = Path(file.name)
             try:
-                for name in names:
-                    file.write(json.dumps({"name": name}, ensure_ascii=False) + "\n")
+                for record in records:
+                    file.write(json.dumps(record, ensure_ascii=False) + "\n")
                 file.close()
                 if initialize:
                     # 다른 실행에서 먼저 만든 파일이 있으면 그대로 사용한다.
                     try:
-                        os.link(temp_path, self.categories_path)
+                        os.link(temp_path, path)
                     except FileExistsError:
                         pass
                 else:
-                    os.replace(temp_path, self.categories_path)
+                    os.replace(temp_path, path)
             finally:
                 temp_path.unlink(missing_ok=True)
 
