@@ -5,41 +5,41 @@ Python 표준 라이브러리로 만드는 콘솔 용돈 기입장입니다.
 ## 작업 체크리스트
 
 0. 구현 정책 확정
-- [ ] Python 3.10 이상·표준 라이브러리만 사용
-- [ ] 실행 명령을 python -m budget_app <command> [options]로 확정
-- [ ] 기본 저장 위치를 실행 디렉터리의 ./data로 정하고 --data-dir 지원
-- [ ] 저장 파일을 transactions.jsonl, categories.jsonl, budgets.jsonl로 통일
-- [ ] 기본 카테고리 자동 생성 및 사용 중인 카테고리 삭제 거부 정책 확정
-- [ ] update는 옵션 방식으로 고정
+- [x] Python 3.10 이상·표준 라이브러리만 사용
+- [x] 실행 명령을 python -m budget_app <command> [options]로 확정
+- [x] 기본 저장 위치를 실행 디렉터리의 ./data로 정하고 --data-dir 지원
+- [x] 저장 파일을 transactions.jsonl, categories.jsonl, budgets.jsonl로 통일
+- [x] 기본 카테고리 자동 생성 및 사용 중인 카테고리 삭제 거부 정책 확정
+- [x] update는 옵션 방식으로 고정
 - [ ] “최신순”을 거래 날짜 내림차순, 같은 날짜일 때의 순서까지 정의
 - [ ] CSV import 오류 정책 확정: 유효 행만 반영할지, 파일 전체를 취소할지 결정
 - [ ] 백업 파일 위치와 반복 거래의 중복 생성 방지 규칙 결정
 
 1. 프로젝트 구조와 CLI
-- [ ] budget_app/__main__.py로 모듈 실행 지원
+- [x] budget_app/__main__.py로 모듈 실행 지원
 - [ ] CLI·모델·저장소·서비스를 최소 3개 이상의 모듈로 분리
-- [ ] add/list/search/summary/budget/category/update/delete/import/export 명령 등록
-- [ ] 보너스 명령 backup과 반복 거래 명령 등록
+- [x] add/list/search/summary/budget/category/update/delete/import/export 명령 등록
+- [x] 보너스 명령 backup과 반복 거래 명령 등록
 - [ ] 루트·모든 명령·하위 명령의 --help 확인
 - [ ] 옵션 이름을 --data-dir, --limit, --from처럼 --로 통일
 - [ ] 정상 종료 코드 0, 오류 종료 코드 0이 아닌 값 확인
 
 2. 거래 모델과 공통 검증
-- [ ] Transaction을 dataclass로 정의하고 ID·타입·날짜·금액·카테고리·메모·태그 포함
-- [ ] 주요 함수와 반환값에 타입 힌트 적용
-- [ ] 실제 달력에 존재하는 YYYY-MM-DD 날짜만 허용
+- [x] Transaction을 dataclass로 정의하고 ID·타입·날짜·금액·카테고리·메모·태그 포함
+- [x] 주요 함수와 반환값에 타입 힌트 적용
+- [x] 실제 달력에 존재하는 YYYY-MM-DD 날짜만 허용
 - [ ] 월 입력은 YYYY-MM 형식과 유효한 월인지 검증
-- [ ] 타입은 income/`expense`만 허용
+- [x] 타입은 income/`expense`만 허용
 - [ ] 금액과 예산은 양의 정수만 허용
 - [ ] 카테고리 존재 여부, 빈 이름, 중복 이름 검증
 - [ ] 태그의 입력·저장·CSV 변환 규칙 통일
 - [ ] --limit·`--top`은 양의 정수, 시작일은 종료일 이하인지 검증
 
 3. JSONL 저장소와 첫 실행
-- [ ] ./data 및 JSONL 파일 3개를 첫 실행에 생성
+- [x] ./data 및 JSONL 파일 3개를 첫 실행에 생성
 - [ ] 기본 카테고리를 최초 한 번만 등록
 - [ ] 거래·카테고리·예산을 각각 종료 후에도 유지
-- [ ] 거래를 한 줄씩 읽는 yield 기반 제너레이터 구현
+- [x] 거래를 한 줄씩 읽는 yield 기반 제너레이터 구현
 - [ ] 거래 추가 시 유일한 ID를 생성하고 한 줄씩 저장
 - [ ] 잘못된 JSONL 행은 파일명·행 번호·해결 힌트와 함께 오류 처리
 - [ ] 저장 파일이 없거나 읽기·쓰기 권한이 없을 때 사용자용 오류 처리
