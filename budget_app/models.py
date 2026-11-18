@@ -1,5 +1,14 @@
 from dataclasses import dataclass
 from datetime import date
+from uuid import uuid4
+
+
+def new_transaction_id() -> str:
+    return f"TX-{uuid4().hex}"
+
+
+def parse_tags(value: str) -> tuple[str, ...]:
+    return tuple(tag for tag in map(str.strip, value.split(",")) if tag)
 
 def validate_date(value: str) -> str:
     try:

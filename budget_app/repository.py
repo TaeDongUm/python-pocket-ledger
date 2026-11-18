@@ -4,6 +4,7 @@ import json
 import os
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict
+from itertools import chain
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -114,6 +115,10 @@ class JsonlStore:
                     ) from exc
     def append_transaction(self, transaction: Transaction) -> None:
         self._append_json(self.transactions_path, asdict(transaction))
+
+    def append_transactions(self, transactions: Iterable[Transaction]) -> None:
+        all_transactions = chain(self.iter_tranactions(), transactions)
+        self._replace_jsonl(self.transactions_path, (asdict(row) for row in all_transactions))
 
     def change_transaction(
         self, transaction_id: str, change: Callable[[Transaction], Transaction | None]

@@ -5,8 +5,10 @@ import sqlite3
 import sys
 from collections.abc import Iterable, Sequence
 from contextlib import closing
+from pathlib import Path
 
-from .models import Transaction
+from .csv_io import export_csv, import_csv
+from .models import Transaction, parse_tags
 from .repository import JsonlStore
 from .service import CategoryService, TransactionService
 
@@ -76,10 +78,17 @@ def build_parser() -> argparse.ArgumentParser:
     delete = commands.add_parser("delete", help="거래 삭제")
     delete.add_argument("--id", required=True, help="삭제할 거래 ID")
 
+    csv_import = commands.add_parser("import", help="CSV 가져오기")
+    csv_import.add_argument("--from", dest="source", type=Path, required=True, help="읽을 CSV 파일")
+
+    csv_export = commands.add_parser("export", help="CSV 내보내기")
+    csv_export.add_argument("--out", type=Path, required=True, help="저장할 CSV 파일")
+    csv_export.add_argument("--month", metavar="YYYY-MM", help="내보낼 거래 월")
+    csv_export.add_argument("--from", dest="start", metavar="YYYY-MM-DD", help="시작일 (포함)")
+    csv_export.add_argument("--to", dest="end", metavar="YYYY-MM-DD", help="종료일 (포함)")
+
     for name, description in (
         ("add", "거래 추가"),
-        ("import","CSV 가져오기"),
-        ("export","CSV 내보내기"),
         ("backup","데이터 백업"),
         ("recurring","반복 거래 관리"),
     ):
@@ -125,10 +134,6 @@ def run_category(args: argparse.Namespace, service: CategoryService) -> None:
                 print(f"- {name}")
         else:
             print("등록된 카테고리가 없습니다. category add로 추가하세요.")
-
-
-def parse_tags(value: str) -> tuple[str, ...]:
-    return tuple(tag for tag in map(str.strip, value.split(",")) if tag)
 
 
 def run_add(service: TransactionService) -> None:
@@ -245,13 +250,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             TransactionService(store).delete(args.id)
             print(f"[삭제 완료] id={args.id}")
             return 0
+        if args.command == "import":
+            count = import_csv(store, args.source)
+            print(f"[완료] imported={count}, skipped=0")
+            return 0
+        if args.command == "export":
+            count = export_csv(store, args.out, month=args.month, start=args.start, end=args.end)
+            print(f"[완료] {args.out} ({count}건)")
+            return 0
     except sqlite3.Error as exc:
         print(f"[오류] 검색 결과를 정렬할 수 없습니다: {exc}", file=sys.stderr)
         print("[힌트] 임시 폴더의 저장 공간과 쓰기 권한을 확인하세요.", file=sys.stderr)
         return 1
     except OSError as exc:
         print(f"[오류] 데이터 파일을 처리할 수 없습니다: {exc}", file=sys.stderr)
-        print("[힌트] --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
+        if args.command in ("import", "export"):
+            print("[힌트] CSV 및 --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
+        else:
+            print("[힌트] --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
         return 1
     except ValueError as exc:
         print(f"[오류] {exc}", file=sys.stderr)
@@ -267,6 +283,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("[힌트] --month 값과 budgets.jsonl을 확인하세요.", file=sys.stderr)
         elif args.command in ("update", "delete"):
             print("[힌트] 거래 ID와 변경 옵션을 확인하세요.", file=sys.stderr)
+        elif args.command == "import":
+            print("[힌트] 가져오기 전체가 취소되었습니다. 입력 파일을 확인하세요.", file=sys.stderr)
+        elif args.command == "export":
+            print("[힌트] 기간 조건, 출력 경로와 거래 파일을 확인하세요.", file=sys.stderr)
         else:
             print("[힌트] --data-dir의 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         return 1

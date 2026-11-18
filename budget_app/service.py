@@ -6,9 +6,10 @@ from collections.abc import Generator, Iterator
 from contextlib import closing
 from dataclasses import asdict, replace
 from heapq import nlargest, nsmallest
-from uuid import uuid4
 
-from .models import MonthlySummary, Transaction, validate_amount, validate_date, validate_month
+from .models import (
+    MonthlySummary, Transaction, new_transaction_id, validate_amount, validate_date, validate_month,
+)
 from .repository import JsonlStore
 
 
@@ -188,7 +189,7 @@ class TransactionService:
         tags: tuple[str, ...],
     ) -> Transaction:
         transaction = Transaction(
-            id=f"TX-{uuid4().hex}",
+            id=new_transaction_id(),
             type=transaction_type,
             date=date,
             amount=amount,
