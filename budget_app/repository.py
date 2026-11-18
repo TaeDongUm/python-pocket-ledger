@@ -2,7 +2,7 @@
 
 import json
 import os
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -114,6 +114,26 @@ class JsonlStore:
                     ) from exc
     def append_transaction(self, transaction: Transaction) -> None:
         self._append_json(self.transactions_path, asdict(transaction))
+
+    def change_transaction(
+        self, transaction_id: str, change: Callable[[Transaction], Transaction | None]
+    ) -> None:
+        def records() -> Iterator[dict[str, object]]:
+            found = False
+            for transaction in self.iter_tranactions():
+                if transaction.id == transaction_id:
+                    if found:
+                        raise ValueError(f"거래 ID가 중복되어 있습니다: {transaction_id}")
+                    found = True
+                    changed = change(transaction)
+                    if changed is not None:
+                        yield asdict(changed)
+                else:
+                    yield asdict(transaction)
+            if not found:
+                raise ValueError(f"해당 ID의 거래가 없습니다: {transaction_id}")
+
+        self._replace_jsonl(self.transactions_path, records())
 
     def iter_categories(self) -> Iterator[str]:
         """등록된 카테고리를 한 줄씩 읽는다."""

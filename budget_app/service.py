@@ -4,7 +4,7 @@ import json
 import sqlite3
 from collections.abc import Generator, Iterator
 from contextlib import closing
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from heapq import nlargest, nsmallest
 from uuid import uuid4
 
@@ -49,6 +49,35 @@ class TransactionService:
 
     def set_budget(self, month: str, amount: int) -> None:
         self.store.save_budget(validate_month(month), validate_amount(amount))
+
+    def update(
+        self,
+        transaction_id: str,
+        *,
+        date: str | None = None,
+        transaction_type: str | None = None,
+        category: str | None = None,
+        amount: int | None = None,
+        memo: str | None = None,
+        tags: tuple[str, ...] | None = None,
+    ) -> None:
+        fields = {
+            "date": date, "type": transaction_type, "category": category,
+            "amount": amount, "memo": memo, "tags": tags,
+        }
+        changes = {name: value for name, value in fields.items() if value is not None}
+        if not changes:
+            raise ValueError("수정할 거래 필드를 하나 이상 지정하세요.")
+
+        def update_record(transaction: Transaction) -> Transaction:
+            updated = replace(transaction, **changes)
+            self._validate_category(updated.category)
+            return updated
+
+        self.store.change_transaction(transaction_id, update_record)
+
+    def delete(self, transaction_id: str) -> None:
+        self.store.change_transaction(transaction_id, lambda transaction: None)
 
     def get_budget(self, month: str) -> int | None:
         return self.store.load_budgets().get(month)
@@ -167,8 +196,10 @@ class TransactionService:
             memo=memo,
             tags=tags,
         )
-        if category not in self.store.iter_categories():
-            raise ValueError(f"등록된 카테고리가 없습니다: {category!r}. category list로 확인하세요.")
-
+        self._validate_category(category)
         self.store.append_transaction(transaction)
         return transaction
+
+    def _validate_category(self, category: str) -> None:
+        if category not in self.store.iter_categories():
+            raise ValueError(f"등록된 카테고리가 없습니다: {category!r}. category list로 확인하세요.")

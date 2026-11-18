@@ -64,10 +64,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="표시할 지출 카테고리 최대 개수 (기본값: %(default)s)",
     )
 
+    update = commands.add_parser("update", help="거래 수정")
+    update.add_argument("--id", required=True, help="수정할 거래 ID")
+    update.add_argument("--date", metavar="YYYY-MM-DD", help="변경할 거래 날짜")
+    update.add_argument("--type", choices=("income", "expense"), help="변경할 거래 타입")
+    update.add_argument("--category", help="변경할 카테고리 이름")
+    update.add_argument("--amount", type=positive_int, help="변경할 거래 금액")
+    update.add_argument("--memo", help="변경할 메모 (빈 문자열이면 지움)")
+    update.add_argument("--tags", type=parse_tags, help="쉼표로 구분한 태그 (빈 문자열이면 지움)")
+
+    delete = commands.add_parser("delete", help="거래 삭제")
+    delete.add_argument("--id", required=True, help="삭제할 거래 ID")
+
     for name, description in (
         ("add", "거래 추가"),
-        ("update","거래 수정"),
-        ("delete","거래 삭제"),
         ("import","CSV 가져오기"),
         ("export","CSV 내보내기"),
         ("backup","데이터 백업"),
@@ -117,6 +127,10 @@ def run_category(args: argparse.Namespace, service: CategoryService) -> None:
             print("등록된 카테고리가 없습니다. category add로 추가하세요.")
 
 
+def parse_tags(value: str) -> tuple[str, ...]:
+    return tuple(tag for tag in map(str.strip, value.split(",")) if tag)
+
+
 def run_add(service: TransactionService) -> None:
     date = input("날짜(YYYY-MM-DD): ").strip()
     transaction_type = input("타입(income/expense): ").strip()
@@ -129,7 +143,7 @@ def run_add(service: TransactionService) -> None:
     except ValueError:
         raise ValueError("금액은 15000처럼 0보다 큰 정수로 입력하세요.") from None
     memo = input("메모(선택): ")
-    tags = tuple(tag for tag in map(str.strip, input("태그(선택, 쉼표로 구분): ").split(",")) if tag)
+    tags = parse_tags(input("태그(선택, 쉼표로 구분): "))
 
     transaction = service.add(
         date=date,
@@ -215,6 +229,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             TransactionService(store).set_budget(args.month, args.amount)
             print(f"[저장 완료] {args.month} 예산 {args.amount}원")
             return 0
+        if args.command == "update":
+            TransactionService(store).update(
+                args.id,
+                date=args.date,
+                transaction_type=args.type,
+                category=args.category,
+                amount=args.amount,
+                memo=args.memo,
+                tags=args.tags,
+            )
+            print(f"[수정 완료] id={args.id}")
+            return 0
+        if args.command == "delete":
+            TransactionService(store).delete(args.id)
+            print(f"[삭제 완료] id={args.id}")
+            return 0
     except sqlite3.Error as exc:
         print(f"[오류] 검색 결과를 정렬할 수 없습니다: {exc}", file=sys.stderr)
         print("[힌트] 임시 폴더의 저장 공간과 쓰기 권한을 확인하세요.", file=sys.stderr)
@@ -235,6 +265,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("[힌트] --month 값과 transactions.jsonl, budgets.jsonl을 확인하세요.", file=sys.stderr)
         elif args.command == "budget":
             print("[힌트] --month 값과 budgets.jsonl을 확인하세요.", file=sys.stderr)
+        elif args.command in ("update", "delete"):
+            print("[힌트] 거래 ID와 변경 옵션을 확인하세요.", file=sys.stderr)
         else:
             print("[힌트] --data-dir의 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         return 1
