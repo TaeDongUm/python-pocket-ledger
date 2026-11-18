@@ -1,9 +1,12 @@
 """용돈 기입장 명령줄 인터페이스"""
 
 import argparse
+import sqlite3
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from contextlib import closing
 
+from .models import Transaction
 from .repository import JsonlStore
 from .service import CategoryService, TransactionService
 
@@ -42,9 +45,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="표시할 최대 거래 건수 (기본값: %(default)s)",
     )
 
+    search = commands.add_parser("search", help="거래 검색")
+    search.add_argument("--from", dest="start", metavar="YYYY-MM-DD", help="시작일 (포함)")
+    search.add_argument("--to", dest="end", metavar="YYYY-MM-DD", help="종료일 (포함)")
+    search.add_argument("--category", help="카테고리 이름")
+    search.add_argument("--type", choices=("income", "expense"), help="거래 타입")
+    search.add_argument("--q", help="메모에 포함된 키워드 (대소문자 무시)")
+    search.add_argument("--tag", help="태그 이름")
+
     for name, description in (
         ("add", "거래 추가"),
-        ("search", "거래 검색"),
         ("summary","월별 요약"),
         ("update","거래 수정"),
         ("delete","거래 삭제"),
@@ -120,15 +130,16 @@ def run_add(service: TransactionService) -> None:
     print(f"[저장 완료] id={transaction.id}")
 
 
-def run_list(service: TransactionService, limit: int) -> None:
-    transactions = service.list_recent(limit)
-    if not transactions:
-        print("등록된 거래가 없습니다.")
+def print_transactions(transactions: Iterable[Transaction], empty_message: str) -> None:
+    found = False
     for transaction in transactions:
+        found = True
         print(
             f"{transaction.id} | {transaction.date} | {transaction.type} | "
             f"{transaction.category} | {transaction.amount} | {transaction.memo}"
         )
+    if not found:
+        print(empty_message)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -144,8 +155,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_add(TransactionService(store))
             return 0
         if args.command == "list":
-            run_list(TransactionService(store), args.limit)
+            print_transactions(
+                TransactionService(store).list_recent(args.limit), "등록된 거래가 없습니다."
+            )
             return 0
+        if args.command == "search":
+            with closing(TransactionService(store).search(
+                start=args.start,
+                end=args.end,
+                category=args.category,
+                transaction_type=args.type,
+                query=args.q,
+                tag=args.tag,
+            )) as matches:
+                print_transactions(matches, "검색 조건에 맞는 거래가 없습니다.")
+            return 0
+    except sqlite3.Error as exc:
+        print(f"[오류] 검색 결과를 정렬할 수 없습니다: {exc}", file=sys.stderr)
+        print("[힌트] 임시 폴더의 저장 공간과 쓰기 권한을 확인하세요.", file=sys.stderr)
+        return 1
     except OSError as exc:
         print(f"[오류] 데이터 파일을 처리할 수 없습니다: {exc}", file=sys.stderr)
         print("[힌트] --data-dir 경로와 읽기·쓰기 권한을 확인하세요.", file=sys.stderr)
@@ -156,6 +184,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("[힌트] category list로 등록된 카테고리를 확인하세요.", file=sys.stderr)
         elif args.command == "add":
             print("[힌트] 입력값을 확인한 뒤 add를 다시 실행하세요.", file=sys.stderr)
+        elif args.command == "search":
+            print("[힌트] 검색 조건과 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         else:
             print("[힌트] --data-dir의 transactions.jsonl 파일을 확인하세요.", file=sys.stderr)
         return 1
